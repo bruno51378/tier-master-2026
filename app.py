@@ -1,3 +1,9 @@
+import time  # Add this at the top
+
+# Inside your display loop:
+for i, row in df_master.iterrows():
+    time.sleep(0.1)  # Add a 0.1-second delay between tickers
+    # ... rest of your code ...
 import streamlit as st
 import yfinance as yf
 import pandas as pd
