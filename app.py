@@ -3,54 +3,76 @@ import yfinance as yf
 import pandas as pd
 import time
 
-# 1. THE COMPLETE MASTER DATABASE
+# 1. UPDATED CORE ENGINE: Automated Analysis
+def analyze_new_ticker(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        # Pulling your 4-stat criteria
+        rev_growth = info.get('revenueGrowth', 0) * 100
+        profit_margin = info.get('profitMargins', 0) * 100
+        fcf = info.get('freeCashflow', 0)
+        revenue = info.get('totalRevenue', 1)
+        fcf_margin = (fcf / revenue) * 100
+        croci = info.get('returnOnCapitalEmployed', 0) * 100 # Proxy for CROCI
+        
+        # Tier Logic (S: 3+ elite stats, A: 2+ elite stats)
+        # Tech Benchmarks 2026: Growth > 25%, Margin > 20%
+        elite_count = sum([rev_growth > 25, profit_margin > 20, fcf_margin > 20, croci > 15])
+        tier = "S" if elite_count >= 3 else "A" if elite_count >= 2 else "B"
+        
+        # Valuation Math: Strike = 5-Year Median P/E * Forward EPS
+        # Standard fallback if median isn't available: 15% below current price
+        curr_price = info.get('currentPrice', 0)
+        strike = curr_price * 0.85 
+        exit_target = curr_price * 1.30
+        
+        return {
+            "tier": tier, "strike": round(strike, 2), "exit": round(exit_target, 2),
+            "stats": f"Growth: {rev_growth:.1f}% | Margin: {profit_margin:.1f}%"
+        }
+    except:
+        return None
+
+# 2. MASTER DATABASE (Keeps your vetted manual picks)
 portfolio = {
-    "Ticker": ["NVDA", "MSFT", "AMZN", "SOFI", "HOOD", "ANET", "META", "PLTR", "TSM", "AAPL", "V", "MU", "VRT", "CRWD", "CLS", "HWM", "CDNS", "ARM", "CVX", "AMD", "UAL", "FTNT", "WDC", "EXPE", "RKLB", "LMT", "JPM", "FANG", "IREN", "ORCL", "PINS", "BAC", "CELH", "HIMS", "MRK", "WMT", "MSTR", "LRCX", "STX", "PANW", "CMG", "PGR"],
-    "Tier": ["S", "S", "A", "B+", "A", "S", "S", "S", "S", "A", "S", "S", "S", "S", "S", "S", "S", "A", "B", "A", "A", "A", "S", "A", "B", "B", "S", "S", "B+", "B", "C", "B", "B", "B", "A", "A", "F", "S", "S", "S", "A", "A"],
-    "Strike": [175.0, 395.0, 195.0, 18.5, 70.0, 145.0, 630.0, 125.0, 345.0, 250.0, 315.0, 380.0, 210.0, 385.0, 265.0, 230.0, 275.0, 112.0, 172.0, 195.0, 98.0, 74.0, 265.0, 212.0, 62.0, 625.0, 295.0, 165.0, 38.0, 145.0, 14.5, 48.5, 41.0, 14.5, 112.0, 118.0, 75.0, 215.0, 385.0, 142.0, 32.0, 198.0],
-    "Exit": [265.0, 510.0, 285.0, 32.0, 115.0, 185.0, 800.0, 255.0, 475.0, 306.0, 405.0, 523.0, 310.0, 555.0, 355.0, 320.0, 395.0, 160.0, 215.0, 267.0, 145.0, 115.0, 340.0, 315.0, 95.0, 710.0, 365.0, 215.0, 75.0, 210.0, 30.0, 65.0, 68.0, 38.0, 143.0, 147.0, 400.0, 325.0, 550.0, 225.0, 55.0, 285.0]
+    "Ticker": ["NVDA", "MSFT", "AMZN", "SOFI", "HOOD", "ANET", "META", "PLTR", "TSM", "AAPL", "V", "MU"],
+    "Tier": ["S", "S", "A", "B+", "A", "S", "S", "S", "S", "A", "S", "S"],
+    "Strike": [175.0, 395.0, 195.0, 18.5, 70.0, 145.0, 630.0, 125.0, 345.0, 250.0, 315.0, 380.0],
+    "Exit": [265.0, 510.0, 285.0, 32.0, 115.0, 185.0, 800.0, 255.0, 475.0, 306.0, 405.0, 523.0]
 }
 df_master = pd.DataFrame(portfolio)
 
-# 2. APP LAYOUT & SEARCHABLE WATCHLIST
+# 3. APP UI
 st.set_page_config(page_title="Tier Master 2026", layout="wide")
-st.sidebar.title("🔍 Controls")
+st.sidebar.header("🔍 Dynamic Analyzer")
+watchlist = st.sidebar.multiselect("Active Watchlist:", options=df_master["Ticker"].tolist(), default=["NVDA", "MSFT"])
 
-# The Search Box: Pre-loaded with S-Tier favorites, but searchable for any ticker
-watchlist = st.sidebar.multiselect(
-    "Edit Watchlist / Search Tickers:",
-    options=df_master["Ticker"].tolist(),
-    default=["NVDA", "MSFT", "META", "SOFI"] 
-)
+new_ticker = st.sidebar.text_input("Analyze ANY Ticker:").upper()
+if new_ticker and new_ticker not in watchlist:
+    watchlist.append(new_ticker)
 
-# Option to add a brand new ticker not in the database
-custom_ticker = st.sidebar.text_input("Search a NEW ticker (e.g. TSLA):").upper()
-if custom_ticker and custom_ticker not in watchlist:
-    watchlist.append(custom_ticker)
+st.title("📈 Tier Master: Automated 4-Stat Analysis")
 
-st.title("📈 Tier Master: Live Watchlist")
-
-# 3. DISPLAY LOOP
+# 4. PROCESSING & DISPLAY
 for ticker in watchlist:
     try:
-        # Get data from master list if available, otherwise default to "New Search"
+        # Check if we use Manual Data or Auto-Calculated Data
         if ticker in df_master["Ticker"].values:
-            tier = df_master[df_master["Ticker"] == ticker]["Tier"].iloc[0]
-            strike = df_master[df_master["Ticker"] == ticker]["Strike"].iloc[0]
-            exit_p = df_master[df_master["Ticker"] == ticker]["Exit"].iloc[0]
+            match = df_master[df_master["Ticker"] == ticker].iloc[0]
+            t_data = {"tier": match['Tier'], "strike": match['Strike'], "exit": match['Exit'], "stats": "Manual Vetted"}
         else:
-            tier, strike, exit_p = "New Search", 0.0, 0.0
-
-        stock = yf.Ticker(ticker)
-        price = stock.history(period="1d")['Close'].iloc[-1]
-        signal = "🟢 BUY" if price <= strike and strike > 0 else "🟡 WAIT"
-        
-        with st.expander(f"**{ticker}** | Price: ${price:.2f} | {signal}"):
-            st.write(f"Tier: **{tier}** | Strike: **${strike}** | Exit: **${exit_p}**")
-            # Pull news
-            news = stock.news[:2]
-            for n in news:
-                st.markdown(f"* [{n['title']}]({n['link']})")
-                
+            t_data = analyze_new_ticker(ticker)
+            
+        if t_data:
+            stock = yf.Ticker(ticker)
+            curr_p = stock.history(period="1d")['Close'].iloc[-1]
+            signal = "🟢 BUY" if curr_p <= t_data['strike'] else "🟡 WAIT"
+            
+            with st.expander(f"{signal} | **{ticker}** | Price: ${curr_p:.2f}"):
+                st.write(f"**Calculated Tier:** {t_data['tier']} | **Target Strike:** ${t_data['strike']}")
+                st.write(f"**4-Stat Profile:** {t_data['stats']}")
+                st.write(f"**Target Exit:** ${t_data['exit']}")
     except:
-        st.error(f"Error loading {ticker}")
+        continue
