@@ -2,8 +2,12 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import time
+from streamlit_autorefresh import st_autorefresh
 
-# 1. DATABASE
+# 1. AUTO-REFRESH (Every 30 seconds)
+st_autorefresh(interval=30000, key="datarefresh")
+
+# 2. DATABASE
 portfolio = {
     "Ticker": ["NVDA", "MSFT", "AMZN", "SOFI", "HOOD", "ANET", "META", "PLTR", "TSM", "AAPL", "V", "MU", "VRT", "CRWD", "CLS", "HWM", "CDNS", "ARM", "CVX", "AMD", "UAL", "FTNT", "WDC", "EXPE", "RKLB", "LMT", "JPM", "FANG", "IREN", "ORCL", "PINS", "BAC", "CELH", "HIMS", "MRK", "WMT", "MSTR", "LRCX", "STX", "PANW", "CMG", "PGR"],
     "Tier": ["S", "S", "A", "B+", "A", "S", "S", "S", "S", "A", "S", "S", "S", "S", "S", "S", "S", "A", "B", "A", "A", "A", "S", "A", "B", "B", "S", "S", "B+", "B", "C", "B", "B", "B", "A", "A", "F", "S", "S", "S", "A", "A"],
@@ -12,69 +16,24 @@ portfolio = {
 }
 df_master = pd.DataFrame(portfolio)
 
-# 2. UPDATED SENTIMENT ENGINE (Fixed for new Yahoo format)
-def analyze_sentiment(news_list):
-    if not news_list: return "Neutral", "gray"
-    pos_words = ['beat', 'surge', 'buy', 'growth', 'upgrade', 'dividend', 'partnership', 'record']
-    neg_words = ['miss', 'fall', 'sell', 'drop', 'downgrade', 'loss', 'debt', 'risk']
-    score = 0
-    try:
-        for n in news_list:
-            # Check if title exists in the new nested structure or old structure
-            title = ""
-            if isinstance(n, dict):
-                title = n.get('title', n.get('content', {}).get('title', '')).lower()
-            
-            score += sum(1 for w in pos_words if w in title)
-            score -= sum(1 for w in neg_words if w in title)
-    except:
-        pass
-    
-    if score > 0: return "Bullish", "green"
-    elif score < 0: return "Bearish", "red"
-    return "Neutral", "gray"
-
 # 3. APP LAYOUT
 st.set_page_config(page_title="Tier Master 2026", page_icon="📈", layout="wide")
-st.title("📈 Tier Master: Real-Time Signals")
+st.title("📈 Tier Master: Live Tracker")
+st.write(f"Last updated: {time.strftime('%H:%M:%S')}")
 
 # 4. DATA PROCESSING
 for i, row in df_master.iterrows():
     try:
-        time.sleep(0.05) 
+        # Using fast_info for "LIVER" price (less delay than history)
         stock = yf.Ticker(row['Ticker'])
-        hist = stock.history(period="1d")
+        price = stock.fast_info['lastPrice']
         
-        if not hist.empty:
-            price = hist['Close'].iloc[-1]
-            signal = "🟢 BUY" if price <= row['Strike'] else "🟡 WAIT"
-            
-            # Fetch news carefully
-            try:
-                news = stock.news[:3]
-            except:
-                news = []
-            
-            sentiment, s_color = analyze_sentiment(news)
-            
-            with st.expander(f"**{row['Ticker']}** | Price: ${price:.2f} | **{signal}**"):
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.write(f"**Tier:** {row['Tier']} | **Strike:** ${row['Strike']}")
-                    st.write(f"**Target Exit:** ${row['Exit']}")
-                    st.markdown(f"Sentiment: :{s_color}[**{sentiment}**]")
-                with c2:
-                    st.write("**Latest Headlines:**")
-                    for art in news:
-                        # New structure handling
-                        t = art.get('title', art.get('content', {}).get('title', 'News Item'))
-                        l = art.get('link', art.get('content', {}).get('clickThroughUrl', {}).get('url', '#'))
-                        st.markdown(f"* [{t}]({l})")
-        else:
-            st.error(f"No price data for {row['Ticker']}")
+        signal = "🟢 BUY" if price <= row['Strike'] else "🟡 WAIT"
+        color = "green" if signal == "🟢 BUY" else "white"
+        
+        st.markdown(f"### :{color}[{row['Ticker']}] | **${price:.2f}** | {signal}")
+        st.write(f"Target Strike: ${row['Strike']} | Tier: {row['Tier']}")
+        st.divider()
             
     except Exception as e:
-        st.error(f"Skipping {row['Ticker']} due to data error.")
-
-st.divider()
-st.caption("Data: Yahoo Finance. Signals: User Defined.")
+        st.error(f"Error loading {row['Ticker']}")
