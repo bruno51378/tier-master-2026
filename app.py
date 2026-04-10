@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 import time
 
-# 1. SETUP THE DATA FIRST (This prevents the NameError)
+# 1. DATABASE
 portfolio = {
     "Ticker": ["NVDA", "MSFT", "AMZN", "SOFI", "HOOD", "ANET", "META", "PLTR", "TSM", "AAPL", "V", "MU", "VRT", "CRWD", "CLS", "HWM", "CDNS", "ARM", "CVX", "AMD", "UAL", "FTNT", "WDC", "EXPE", "RKLB", "LMT", "JPM", "FANG", "IREN", "ORCL", "PINS", "BAC", "CELH", "HIMS", "MRK", "WMT", "MSTR", "LRCX", "STX", "PANW", "CMG", "PGR"],
     "Tier": ["S", "S", "A", "B+", "A", "S", "S", "S", "S", "A", "S", "S", "S", "S", "S", "S", "S", "A", "B", "A", "A", "A", "S", "A", "B", "B", "S", "S", "B+", "B", "C", "B", "B", "B", "A", "A", "F", "S", "S", "S", "A", "A"],
@@ -12,37 +12,50 @@ portfolio = {
 }
 df_master = pd.DataFrame(portfolio)
 
-# 2. SENTIMENT ENGINE
+# 2. UPDATED SENTIMENT ENGINE (Fixed for new Yahoo format)
 def analyze_sentiment(news_list):
     if not news_list: return "Neutral", "gray"
     pos_words = ['beat', 'surge', 'buy', 'growth', 'upgrade', 'dividend', 'partnership', 'record']
     neg_words = ['miss', 'fall', 'sell', 'drop', 'downgrade', 'loss', 'debt', 'risk']
     score = 0
-    for n in news_list:
-        title = n.get('title', '').lower()
-        score += sum(1 for w in pos_words if w in title)
-        score -= sum(1 for w in neg_words if w in title)
+    try:
+        for n in news_list:
+            # Check if title exists in the new nested structure or old structure
+            title = ""
+            if isinstance(n, dict):
+                title = n.get('title', n.get('content', {}).get('title', '')).lower()
+            
+            score += sum(1 for w in pos_words if w in title)
+            score -= sum(1 for w in neg_words if w in title)
+    except:
+        pass
+    
     if score > 0: return "Bullish", "green"
     elif score < 0: return "Bearish", "red"
     return "Neutral", "gray"
 
 # 3. APP LAYOUT
 st.set_page_config(page_title="Tier Master 2026", page_icon="📈", layout="wide")
-st.title("📈 Tier Master: Real-Time Signals & AI Sentiment")
+st.title("📈 Tier Master: Real-Time Signals")
 
-# 4. DATA PROCESSING LOOP
+# 4. DATA PROCESSING
 for i, row in df_master.iterrows():
     try:
-        # Stabilization: Small delay and reliable price fetch
         time.sleep(0.05) 
         stock = yf.Ticker(row['Ticker'])
         hist = stock.history(period="1d")
         
         if not hist.empty:
             price = hist['Close'].iloc[-1]
-            news = stock.news[:3]
-            sentiment, s_color = analyze_sentiment(news)
             signal = "🟢 BUY" if price <= row['Strike'] else "🟡 WAIT"
+            
+            # Fetch news carefully
+            try:
+                news = stock.news[:3]
+            except:
+                news = []
+            
+            sentiment, s_color = analyze_sentiment(news)
             
             with st.expander(f"**{row['Ticker']}** | Price: ${price:.2f} | **{signal}**"):
                 c1, c2 = st.columns(2)
@@ -51,13 +64,17 @@ for i, row in df_master.iterrows():
                     st.write(f"**Target Exit:** ${row['Exit']}")
                     st.markdown(f"Sentiment: :{s_color}[**{sentiment}**]")
                 with c2:
+                    st.write("**Latest Headlines:**")
                     for art in news:
-                        st.markdown(f"* [{art['title']}]({art['link']})")
+                        # New structure handling
+                        t = art.get('title', art.get('content', {}).get('title', 'News Item'))
+                        l = art.get('link', art.get('content', {}).get('clickThroughUrl', {}).get('url', '#'))
+                        st.markdown(f"* [{t}]({l})")
         else:
-            st.error(f"Could not find price for {row['Ticker']}")
+            st.error(f"No price data for {row['Ticker']}")
             
     except Exception as e:
-        st.error(f"Error loading {row['Ticker']}: {e}")
+        st.error(f"Skipping {row['Ticker']} due to data error.")
 
 st.divider()
-st.caption("Data: Yahoo Finance. Signals: Tier Master 2026 Logic.")
+st.caption("Data: Yahoo Finance. Signals: User Defined.")
