@@ -1,14 +1,9 @@
-import time  # Add this at the top
-
-# Inside your display loop:
-for i, row in df_master.iterrows():
-    time.sleep(0.1)  # Add a 0.1-second delay between tickers
-    # ... rest of your code ...
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import time
 
-# 1. Database containing your complete list and tiers
+# 1. SETUP THE DATA FIRST (This prevents the NameError)
 portfolio = {
     "Ticker": ["NVDA", "MSFT", "AMZN", "SOFI", "HOOD", "ANET", "META", "PLTR", "TSM", "AAPL", "V", "MU", "VRT", "CRWD", "CLS", "HWM", "CDNS", "ARM", "CVX", "AMD", "UAL", "FTNT", "WDC", "EXPE", "RKLB", "LMT", "JPM", "FANG", "IREN", "ORCL", "PINS", "BAC", "CELH", "HIMS", "MRK", "WMT", "MSTR", "LRCX", "STX", "PANW", "CMG", "PGR"],
     "Tier": ["S", "S", "A", "B+", "A", "S", "S", "S", "S", "A", "S", "S", "S", "S", "S", "S", "S", "A", "B", "A", "A", "A", "S", "A", "B", "B", "S", "S", "B+", "B", "C", "B", "B", "B", "A", "A", "F", "S", "S", "S", "A", "A"],
@@ -17,44 +12,52 @@ portfolio = {
 }
 df_master = pd.DataFrame(portfolio)
 
-# 2. AI Sentiment Engine
+# 2. SENTIMENT ENGINE
 def analyze_sentiment(news_list):
     if not news_list: return "Neutral", "gray"
-    
     pos_words = ['beat', 'surge', 'buy', 'growth', 'upgrade', 'dividend', 'partnership', 'record']
     neg_words = ['miss', 'fall', 'sell', 'drop', 'downgrade', 'loss', 'debt', 'risk']
-    
     score = 0
     for n in news_list:
-        title = n['title'].lower()
+        title = n.get('title', '').lower()
         score += sum(1 for w in pos_words if w in title)
         score -= sum(1 for w in neg_words if w in title)
-    
     if score > 0: return "Bullish", "green"
     elif score < 0: return "Bearish", "red"
     return "Neutral", "gray"
 
-# 3. App Layout
+# 3. APP LAYOUT
 st.set_page_config(page_title="Tier Master 2026", page_icon="📈", layout="wide")
 st.title("📈 Tier Master: Real-Time Signals & AI Sentiment")
 
-# 4. Processing and Display
+# 4. DATA PROCESSING LOOP
 for i, row in df_master.iterrows():
     try:
+        # Stabilization: Small delay and reliable price fetch
+        time.sleep(0.05) 
         stock = yf.Ticker(row['Ticker'])
-        price = stock.fast_info.last_price
-        news = stock.news[:3]
-        sentiment, s_color = analyze_sentiment(news)
-        signal = "🟢 BUY" if price <= row['Strike'] else "🟡 WAIT"
+        hist = stock.history(period="1d")
         
-        with st.expander(f"**{row['Ticker']}** | Price: ${price:.2f} | **{signal}**"):
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                st.write(f"**Tier:** {row['Tier']} | **Strike:** ${row['Strike']}")
-                st.write(f"**Target Exit:** ${row['Exit']}")
-                st.markdown(f"Sentiment: :{s_color}[**{sentiment}**]")
-            with c2:
-                for art in news:
-                    st.markdown(f"* [{art['title']}]({art['link']})")
-    except:
-        st.error(f"Error loading {row['Ticker']}")
+        if not hist.empty:
+            price = hist['Close'].iloc[-1]
+            news = stock.news[:3]
+            sentiment, s_color = analyze_sentiment(news)
+            signal = "🟢 BUY" if price <= row['Strike'] else "🟡 WAIT"
+            
+            with st.expander(f"**{row['Ticker']}** | Price: ${price:.2f} | **{signal}**"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.write(f"**Tier:** {row['Tier']} | **Strike:** ${row['Strike']}")
+                    st.write(f"**Target Exit:** ${row['Exit']}")
+                    st.markdown(f"Sentiment: :{s_color}[**{sentiment}**]")
+                with c2:
+                    for art in news:
+                        st.markdown(f"* [{art['title']}]({art['link']})")
+        else:
+            st.error(f"Could not find price for {row['Ticker']}")
+            
+    except Exception as e:
+        st.error(f"Error loading {row['Ticker']}: {e}")
+
+st.divider()
+st.caption("Data: Yahoo Finance. Signals: Tier Master 2026 Logic.")
